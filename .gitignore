@@ -1,0 +1,13 @@
+# Secrets and local state
+.env
+*.pem
+*.key
+.vault_pass*
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Build output
+node_modules/
+target/
+__pycache__/

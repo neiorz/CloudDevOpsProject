@@ -1,0 +1,75 @@
+name: ivolve
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ivolve-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${DB_NAME:-ivolve}
+      MYSQL_USER: ${DB_USER:-ivolveuser}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - ivolve-net
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  auth-service:
+    build: ./app/auth-service
+    container_name: ivolve-auth-service
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-ivolve}
+      DB_USER: ${DB_USER:-ivolveuser}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5000:5000"
+    networks:
+      - ivolve-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  roadmap-service:
+    build: ./app/roadmap-service
+    container_name: ivolve-roadmap-service
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - ivolve-net
+
+  frontend:
+    build: ./app/frontend
+    container_name: ivolve-frontend
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:5000
+      ROADMAP_SERVICE_URL: http://roadmap-service:8080
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      roadmap-service:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    networks:
+      - ivolve-net
+
+volumes:
+  db_data:
+
+networks:
+  ivolve-net:
