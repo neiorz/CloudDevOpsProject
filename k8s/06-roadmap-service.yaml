@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: roadmap-service
-          image: nourz1/ivolve-roadmap-service:local
+          image: nourz1/ivolve-roadmap-service:1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
