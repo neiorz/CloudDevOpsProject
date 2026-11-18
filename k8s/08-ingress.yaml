@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ivolve-ingress
+  namespace: ivolve
+  annotations:
+    # Sessions are kept in the memory of each frontend pod, so a user must keep
+    # talking to the same pod.
+    nginx.ingress.kubernetes.io/affinity: cookie
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ivolve.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
