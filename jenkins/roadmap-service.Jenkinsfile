@@ -5,7 +5,7 @@ pipeline {
 
     environment {
         SERVICE  = 'roadmap-service'
-        IMAGE    = 'nourz1/ivolve-roadmap-service'
+        IMAGE    = '400326779380.dkr.ecr.eu-north-1.amazonaws.com/ivolve-roadmap-service'
         CONTEXT  = 'app/roadmap-service'
         MANIFEST = 'k8s/06-roadmap-service.yaml'
         TAG      = "${BUILD_NUMBER}"

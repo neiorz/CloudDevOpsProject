@@ -5,7 +5,7 @@ pipeline {
 
     environment {
         SERVICE  = 'frontend'
-        IMAGE    = 'nourz1/ivolve-frontend'
+        IMAGE    = '400326779380.dkr.ecr.eu-north-1.amazonaws.com/ivolve-frontend'
         CONTEXT  = 'app/frontend'
         MANIFEST = 'k8s/07-frontend.yaml'
         TAG      = "${BUILD_NUMBER}"

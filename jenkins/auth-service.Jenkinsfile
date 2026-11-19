@@ -5,7 +5,7 @@ pipeline {
 
     environment {
         SERVICE  = 'auth-service'
-        IMAGE    = 'nourz1/ivolve-auth-service'
+        IMAGE    = '400326779380.dkr.ecr.eu-north-1.amazonaws.com/ivolve-auth-service'
         CONTEXT  = 'app/auth-service'
         MANIFEST = 'k8s/05-auth-service.yaml'
         TAG      = "${BUILD_NUMBER}"
