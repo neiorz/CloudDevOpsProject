@@ -1,0 +1,9 @@
+---
+- name: Install Trivy via official install script
+  become: true
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+  args:
+    executable: /bin/bash
+    creates: /usr/local/bin/trivy

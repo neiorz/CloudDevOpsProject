@@ -1,0 +1,10 @@
+---
+- name: Configure Jenkins EC2 server for CI/CD
+  hosts: role_jenkins
+  gather_facts: true
+  roles:
+    - java
+    - jenkins
+    - docker
+    - trivy
+    - awscli

@@ -1,7 +1,7 @@
 @Library('cdo-lib') _
 
 pipeline {
-    agent { label 'agent-1' }
+    agent any
 
     environment {
         SERVICE  = 'roadmap-service'

@@ -11,3 +11,9 @@
 node_modules/
 target/
 __pycache__/
+
+# Terraform local files
+tfplan
+*.tfplan
+terraform.tfvars
+crash.log
