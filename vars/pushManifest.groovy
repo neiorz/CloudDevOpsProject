@@ -11,7 +11,7 @@ def call(String manifestFile, String serviceName, String imageTag, String branch
             git commit -m 'ci(${serviceName}): update image tag to ${imageTag}'
             REPO=\$(git config --get remote.origin.url | sed 's|https://||')
             for i in 1 2 3; do
-                git fetch https://\${GIT_USER}:\${GIT_PASS}@\$REPO ${branch} && git rebase FETCH_HEAD && git push https://\${GIT_USER}:\${GIT_PASS}@\$REPO HEAD:${branch} && exit 0
+                git fetch https://\${GIT_USER}:\${GIT_PASS}@\$REPO ${branch} && git rebase -X theirs FETCH_HEAD && git push https://\${GIT_USER}:\${GIT_PASS}@\$REPO HEAD:${branch} && exit 0
                 echo "push failed, retrying (\$i/3)"
                 git rebase --abort 2>/dev/null || true
                 sleep 5
