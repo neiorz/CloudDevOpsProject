@@ -1,117 +1,135 @@
 # CloudDevOpsProject
 
-A microservices web application used as the final project of the Cloud DevOps Accelerator Program (NTI x iVolve). The application is built, containerized, scanned, deployed to Kubernetes and delivered with a GitOps workflow.
+End-to-end Cloud DevOps microservices deployment on **AWS EKS** using **Terraform**, **Ansible**, **Docker**, **Jenkins** (with a reusable Shared Library), and **ArgoCD** GitOps. Built as part of the Cloud DevOps Accelerator Program (**NTI × iVolve**).
 
-> This README is the first version. It is extended as each part of the project is finished.
+## Architecture Overview
 
-## Application
+The platform follows an automated Infrastructure-as-Code (IaC), Configuration Management, CI/CD, and GitOps workflow:
 
-The application lets a user sign up, log in and see a DevOps roadmap page. The source code comes from the course repository `iVolveFinalProject`; the code is kept unchanged, except for one line in the `auth-service` Dockerfile (see Notes).
+1. **Infrastructure Provisioning (Terraform + S3 Backend)**: Provisions networking (VPC, public/private subnets, IGW, NAT Gateway, NACLs), a Jenkins EC2 instance with Security Groups, an EKS cluster (`ivolve-eks`) with worker nodes across private subnets/AZs, and ECR repositories.
+2. **Configuration Management (Ansible)**: Uses dynamic EC2 inventory (`aws_ec2.yaml`) and modular roles (`java`, `jenkins`, `docker`, `trivy`, `awscli`) to configure the Jenkins host.
+3. **Continuous Integration (Jenkins + Shared Library)**: Each microservice pipeline runs `Build Image`, `Scan Image`, `Push Image`, `Delete Image Locally`, `Update Manifests`, and `Push Manifests` using Groovy steps in `vars/`.
+4. **GitOps & Kubernetes Delivery (ArgoCD + EKS)**: ArgoCD (`ivolve-app`) continuously reconciles Kubernetes manifests under `k8s/` into the `ivolve` namespace, backed by EBS CSI (`ivolve-storage` StorageClass for MySQL `StatefulSet`) and `ingress-nginx` (`ivolve.local`).
 
-| Service | Technology | Port | What it does |
-|---------|------------|------|--------------|
-| `frontend` | Node.js 22, Express, EJS | 3000 | Web UI, talks to the two backend services |
-| `auth-service` | Python 3.12, Flask | 5000 | Sign up and login, stores users in MySQL (bcrypt hashes); `/health` endpoint |
-| `roadmap-service` | Java 21, Spring Boot | 8080 | Returns the roadmap data on `/api/roadmap` |
-| `mysql` | MySQL 8.0 | 3306 | Database `ivolve`, used only by `auth-service` |
+## Application Services
 
-## Repository layout
+| Service | Stack | Port | Responsibility |
+| :--- | :--- | :--- | :--- |
+| `frontend` | Node.js 22, Express, EJS | `3000` | Web UI served via `ingress-nginx` (`ivolve.local`) and connected to backend services |
+| `auth-service` | Python 3.12, Flask | `5000` | User registration, login, password hashing, and database authentication |
+| `roadmap-service` | Java 21, Spring Boot | `8080` | DevOps roadmap API (`/api/roadmap`) |
+| `mysql` | MySQL 8.3 | `3306` | Persistent relational database (`StatefulSet` with `1Gi` EBS PVC `data-mysql-0`) |
 
-| Path | Content | Status |
-|------|---------|--------|
-| `app/` | The three microservices with their Dockerfiles | done |
-| `docker-compose.yml` | Local run of the application with the database | done |
-| `terraform/` | AWS infrastructure modules | planned |
-| `ansible/` | Jenkins server configuration | planned |
-| `k8s/`, `secrets-example/` | Kubernetes manifests and an example Secret | done |
-| `jenkins/`, `vars/` | Pipelines and Shared Library | planned |
-| `argocd/` | Argo CD Application | planned |
+## Repository Layout
 
-## Run it locally
+| Path | Description | Status |
+| :--- | :--- | :--- |
+| `app/` | Source code and Dockerfiles for `frontend`, `auth-service`, and `roadmap-service` | Done |
+| `docker-compose.yml` | Local multi-container setup for testing the app stack with MySQL | Done |
+| `terraform/` | Remote S3 backend, root config, and modules (`network`, `server`, `eks`, `ecr`) | Done |
+| `ansible/` | Dynamic inventory (`aws_ec2.yaml`), `playbook.yml`, and roles (`java`, `jenkins`, `docker`, `trivy`, `awscli`) | Done |
+| `k8s/` | Namespace, ConfigMap, StorageClass, MySQL Headless Service & StatefulSet, Deployments/Services, and Ingress | Done |
+| `secrets-example/` | Example Kubernetes Secret template (real secrets are never committed) | Done |
+| `jenkins/` & `vars/` | Per-service Jenkinsfiles and Shared Library steps (`buildImage`, `scanImage`, `pushImage`, `deleteImage`, `updateManifest`, `pushManifest`) | Done |
+| `argocd/` | ArgoCD `Application` manifest (`ivolve-app`) for automated GitOps sync | Done |
+| `screens/` | Verification and deployment screenshots | Done |
 
-Requirements: Docker and Docker Compose.
+## Setup Instructions
+
+### 1. Local Testing with Docker Compose
 
 ```bash
 git clone https://github.com/neiorz/CloudDevOpsProject.git
 cd CloudDevOpsProject
 cp .env.example .env
-# edit .env and replace every "change-me-..." value with your own secret
+# Edit .env with your local values
 docker compose up -d --build
 docker compose ps
 ```
 
-Open `http://localhost:3000`, create an account, log in and the roadmap page opens.
-
-Useful checks:
+### 2. Provision AWS Infrastructure (Terraform)
 
 ```bash
-curl http://127.0.0.1:5000/health          # {"database":"connected","status":"UP"}
-curl http://127.0.0.1:8080/api/roadmap     # roadmap data
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+# Update terraform.tfvars with your environment values
+terraform init
+terraform validate
+terraform plan
+terraform apply
 ```
 
-Stop the application (the database volume is kept):
+### 3. Configure Jenkins Server (Ansible)
 
 ```bash
-docker compose down
+cd ../ansible
+ansible-galaxy collection install amazon.aws
+ansible-playbook -i inventory/aws_ec2.yaml playbook.yml
 ```
 
-The `.env` file holds the passwords and is ignored by Git. Only `.env.example`, with placeholder values, is committed.
+### 4. Deploy & Sync via ArgoCD on EKS
 
-## Run it on Kubernetes (minikube)
-
-minikube is used as a local test cluster. The target cluster of the project is EKS on AWS, so only the storage provisioner changes between the two.
+Ensure the ArgoCD `Application` manifest in `argocd/application.yaml` is applied and `ingress-nginx` is installed in the cluster.
 
 ```bash
-minikube start
-minikube addons enable ingress
-
-# load the images built by docker compose into minikube
-docker tag ivolve-frontend:latest nourz1/ivolve-frontend:local
-docker tag ivolve-auth-service:latest nourz1/ivolve-auth-service:local
-docker tag ivolve-roadmap-service:latest nourz1/ivolve-roadmap-service:local
-minikube image load nourz1/ivolve-frontend:local
-minikube image load nourz1/ivolve-auth-service:local
-minikube image load nourz1/ivolve-roadmap-service:local
-
-# the Secret is created from the local .env file and is never committed
-kubectl apply -f k8s/00-namespace.yaml
-set -a; . ./.env; set +a
-kubectl -n ivolve create secret generic ivolve-secret \
-  --from-literal=MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" \
-  --from-literal=DB_PASSWORD="$DB_PASSWORD" \
-  --from-literal=SESSION_SECRET="$SESSION_SECRET"
-unset MYSQL_ROOT_PASSWORD DB_PASSWORD SESSION_SECRET
-
-kubectl apply -f k8s/
-kubectl -n ivolve get pods
-
-echo "$(minikube ip) ivolve.local" | sudo tee -a /etc/hosts
+kubectl get pvc,pods -n ivolve -o wide
+kubectl get svc -n ingress-nginx
+kubectl get ingress -n ivolve
+kubectl get applications -n argocd
 ```
 
-Open `http://ivolve.local`.
+To test `http://ivolve.local` locally when local DNS resolution is delayed, resolve the LoadBalancer IP and map `ivolve.local` in `/etc/hosts` temporarily:
 
-| Manifest | What it creates |
-|----------|-----------------|
-| `00-namespace.yaml` | Namespace `ivolve` |
-| `01-configmap.yaml` | Non-secret settings: database host, name and user, service URLs |
-| `02-storageclass.yaml` | StorageClass `ivolve-storage` |
-| `03-mysql-headless-service.yaml` | Headless Service `mysql-headless` for the database |
-| `04-mysql-statefulset.yaml` | MySQL StatefulSet with a 1Gi persistent volume |
-| `05-auth-service.yaml` | Deployment (2 replicas) and Service |
-| `06-roadmap-service.yaml` | Deployment (2 replicas) and Service |
-| `07-frontend.yaml` | Deployment (2 replicas) and Service |
-| `08-ingress.yaml` | Ingress `ivolve.local` to the frontend |
+```bash
+LB_HOST="<ingress-nginx-controller-external-ip>"
+LB_IP=$(dig +short "$LB_HOST" @1.1.1.1 | head -n 1)
+echo "$LB_IP ivolve.local" | sudo tee -a /etc/hosts
+curl -i --resolve "ivolve.local:80:$LB_IP" "http://ivolve.local/"
+```
 
-Design notes:
+## Verification & Screenshots
 
-- The namespace is `ivolve` in lowercase, because Kubernetes does not accept capital letters in names.
-- The real Secret is not in Git. `secrets-example/ivolve-secret.example.yaml` only shows its shape. A production setup would use Sealed Secrets or an external secret manager.
-- The frontend keeps sessions in the memory of each pod, so the Ingress uses cookie affinity. A shared session store such as Redis would remove this limit.
-- The `auth-service` readiness probe calls `/health`, which checks the database, so no traffic reaches a pod that cannot reach MySQL.
-- On EKS the StorageClass provisioner becomes `ebs.csi.aws.com`; the other manifests stay the same.
-- To query MySQL inside the pod, use `mysql -h 127.0.0.1 ...`; without `-h` the client looks for a socket file and fails.
+### Terraform & Ansible Provisioning
 
-## Notes
+![Terraform Validate](screens/07-terraform-validate.png)
+![Terraform Apply](screens/08-terraform-apply.png)
+![Terraform Server Apply](screens/12-terraform-server-apply.png)
+![Ansible Jenkins Provision](screens/13-ansible-jenkins-provision.png)
+![Jenkins UI Ready](screens/14-jenkins-ui-ready.png)
+![ECR Repositories](screens/18%20ecr%20repositories.png)
 
-- The course README lists `auth-service` as Java and `roadmap-service` as Python. The code is the other way around, as the table above shows.
-- `PIP_DEFAULT_TIMEOUT` and `PIP_RETRIES` are set in `app/auth-service/Dockerfile` because `pip install` timed out on a slow internet connection.
+### CI/CD, GitOps & EKS Runtime
+
+![Jenkins Shared Library](screens/04-jenkins-library.png)
+![Jenkins Auth Pipeline](screens/04-pipeline-auth.png)
+![Jenkins Roadmap Build](screens/05-jenkins-roadmap-build.png)
+![ArgoCD Application](screens/05-argocd-app.png)
+![EKS Nodes Ready](screens/10-eks-nodes-ready.png)
+![EBS CSI and PVC Bound](screens/15-ebs-csi-and-pvc.png)
+![Ingress and ArgoCD Healthy](screens/16-ingress-and-argocd-healthy.png)
+
+### Application & Database Verification
+
+![Docker Compose Running](screens/02-compose-ps.png)
+![Database Users](screens/02-db-users.png)
+![Application Roadmap](screens/02-app-roadmap.png)
+![Application Browser Login via Ingress](screens/17-app-browser-login.png)
+
+## Operational Notes & Lessons Learned
+
+* **IMDSv2 Hop Limit for EBS CSI**: Worker EC2 instances required `HttpPutResponseHopLimit` set to `2` so pods/controllers using IMDSv2 could retrieve credentials cleanly for EBS volume provisioning.
+* **Instance Sizing & Pod Density**: Running on `t3.small` worker nodes requires keeping replica counts lean and monitoring pod limits per node.
+* **Secrets Management**: Never commit `.env`, `terraform.tfvars` with sensitive values, or live Kubernetes Secrets; use `.env.example`, `terraform.tfvars.example`, and `secrets-example/`.
+
+## Cleanup
+
+To avoid ongoing AWS charges after testing or evaluation, remove Kubernetes LoadBalancer/PVC resources and destroy Terraform-managed infrastructure:
+
+```bash
+kubectl delete ingress --all -n ivolve --ignore-not-found
+kubectl delete pvc --all -n ivolve --ignore-not-found
+kubectl delete namespace ingress-nginx --ignore-not-found
+
+cd terraform
+terraform destroy
+```
