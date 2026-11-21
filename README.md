@@ -9,7 +9,7 @@ The platform follows an automated Infrastructure-as-Code (IaC), Configuration Ma
 1. **Infrastructure Provisioning (Terraform + S3 Backend)**: Provisions networking (VPC, public/private subnets, IGW, NAT Gateway, NACLs), a Jenkins EC2 instance with Security Groups, an EKS cluster (`ivolve-eks`) with worker nodes across private subnets/AZs, and ECR repositories.
 2. **Configuration Management (Ansible)**: Uses dynamic EC2 inventory (`aws_ec2.yaml`) and modular roles (`java`, `jenkins`, `docker`, `trivy`, `awscli`) to configure the Jenkins host.
 3. **Continuous Integration (Jenkins + Shared Library)**: Each microservice pipeline runs `Build Image`, `Scan Image`, `Push Image`, `Delete Image Locally`, `Update Manifests`, and `Push Manifests` using Groovy steps in `vars/`.
-4. **GitOps & Kubernetes Delivery (ArgoCD + EKS)**: ArgoCD (`ivolve-app`) continuously reconciles Kubernetes manifests under `k8s/` into the `ivolve` namespace, backed by EBS CSI (`ivolve-storage` StorageClass for MySQL `StatefulSet`) and `ingress-nginx` (`ivolve.local`).
+4. **GitOps & Kubernetes Delivery (ArgoCD + EKS)**: ArgoCD (`cloud-devops-project`) continuously reconciles Kubernetes manifests under `k8s/` into the `ivolve` namespace, backed by EBS CSI (`ivolve-storage` StorageClass for MySQL `StatefulSet`) and `ingress-nginx` (`ivolve.local`).
 
 ## Application Services
 
@@ -18,7 +18,7 @@ The platform follows an automated Infrastructure-as-Code (IaC), Configuration Ma
 | `frontend` | Node.js 22, Express, EJS | `3000` | Web UI served via `ingress-nginx` (`ivolve.local`) and connected to backend services |
 | `auth-service` | Python 3.12, Flask | `5000` | User registration, login, password hashing, and database authentication |
 | `roadmap-service` | Java 21, Spring Boot | `8080` | DevOps roadmap API (`/api/roadmap`) |
-| `mysql` | MySQL 8.3 | `3306` | Persistent relational database (`StatefulSet` with `1Gi` EBS PVC `data-mysql-0`) |
+| `mysql` | MySQL 8.0 | `3306` | Persistent relational database (`StatefulSet` with `1Gi` EBS PVC `data-mysql-0`) |
 
 ## Repository Layout
 
@@ -31,7 +31,7 @@ The platform follows an automated Infrastructure-as-Code (IaC), Configuration Ma
 | `k8s/` | Namespace, ConfigMap, StorageClass, MySQL Headless Service & StatefulSet, Deployments/Services, and Ingress | Done |
 | `secrets-example/` | Example Kubernetes Secret template (real secrets are never committed) | Done |
 | `jenkins/` & `vars/` | Per-service Jenkinsfiles and Shared Library steps (`buildImage`, `scanImage`, `pushImage`, `deleteImage`, `updateManifest`, `pushManifest`) | Done |
-| `argocd/` | ArgoCD `Application` manifest (`ivolve-app`) for automated GitOps sync | Done |
+| `argocd/` | ArgoCD `Application` manifest (`cloud-devops-project`) for automated GitOps sync | Done |
 | `screens/` | Verification and deployment screenshots | Done |
 
 ## Setup Instructions
@@ -96,7 +96,7 @@ curl -i --resolve "ivolve.local:80:$LB_IP" "http://ivolve.local/"
 ![Terraform Server Apply](screens/12-terraform-server-apply.png)
 ![Ansible Jenkins Provision](screens/13-ansible-jenkins-provision.png)
 ![Jenkins UI Ready](screens/14-jenkins-ui-ready.png)
-![ECR Repositories](screens/18%20ecr%20repositories.png)
+![ECR Repositories](screens/18-ecr-repositories.png)
 
 ### CI/CD, GitOps & EKS Runtime
 
@@ -123,13 +123,28 @@ curl -i --resolve "ivolve.local:80:$LB_IP" "http://ivolve.local/"
 
 ## Cleanup
 
-To avoid ongoing AWS charges after testing or evaluation, remove Kubernetes LoadBalancer/PVC resources and destroy Terraform-managed infrastructure:
+The AWS resources (EKS, NAT Gateway, EC2 and the load balancer) are billed by the hour, so remove them when the project is finished. The order matters:
 
 ```bash
-kubectl delete ingress --all -n ivolve --ignore-not-found
-kubectl delete pvc --all -n ivolve --ignore-not-found
-kubectl delete namespace ingress-nginx --ignore-not-found
+# 1. Stop Argo CD first, otherwise it recreates what is deleted (selfHeal is on)
+kubectl -n argocd delete application cloud-devops-project
 
+# 2. Delete the load balancer and the volume claims
+kubectl delete ingress --all -n ivolve --ignore-not-found
+kubectl delete namespace ingress-nginx --ignore-not-found
+kubectl delete pvc --all -n ivolve --ignore-not-found
+
+# 3. The StorageClass uses reclaimPolicy Retain, so the EBS volume of the database stays.
+#    Delete the leftover volume of the claim data-mysql-0
+kubectl delete pv --all --ignore-not-found
+aws ec2 describe-volumes --region eu-north-1 \
+  --filters "Name=tag:kubernetes.io/created-for/pvc/name,Values=data-mysql-0" \
+  --query "Volumes[].VolumeId" --output text
+aws ec2 delete-volume --region eu-north-1 --volume-id <volume-id-from-the-command-above>
+
+# 4. Destroy the infrastructure
 cd terraform
 terraform destroy
 ```
+
+Finally, check in the AWS console that no EC2 instance, NAT Gateway, load balancer, EKS cluster or volume is left, and remove the local `ivolve.local` line from `/etc/hosts`.
